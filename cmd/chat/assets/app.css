@@ -1,0 +1,6 @@
+@charset "utf-8";
+body{ font-family: Meiryo, Verdana, sans-serif; }
+#logo { float: left; }
+#chat { margin-left: 200px }
+textarea { width: 500px; padding: 10px; }
+#whoami { font-weight: bold; }
