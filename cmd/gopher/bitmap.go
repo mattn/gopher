@@ -182,7 +182,7 @@ func toRgn(img image.Image) winapi.HRGN {
 				}
 			} else {
 				if opaque {
-					addMask(hRgn, v, y, x+1, y+1)
+					addMask(hRgn, v, y, x, y+1)
 					opaque = false
 				}
 			}
