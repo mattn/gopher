@@ -4,7 +4,7 @@
 
 Love Gopher
 
-This is desktop mascot application running on your desktop on windows.
+This is a desktop mascot application running on your desktop on windows.
 
 ## Feature
 
