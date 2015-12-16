@@ -12,7 +12,7 @@ At the first, you need to run `gopher.exe`.
 
 ### Walking
 
-![](http://i.imgur.com/BgiIAj9.gif)
+![](http://i.imgur.com/9Xf0BTM.gif)
 
 So Sweet!
 
@@ -20,7 +20,7 @@ So Sweet!
 
 If you did mis-type `ls` as `sl`.
 
-![](http://i.imgur.com/xt550tv.gif)
+![](http://i.imgur.com/BgiIAj9.gif)
 
 So Fast!
 
@@ -33,6 +33,10 @@ gopherc -m Hello
 ```
 
 ![](http://i.imgur.com/DTIBM9W.gif)
+
+You need more gophers?
+
+![](http://i.imgur.com/xt550tv.gif)
 
 Hello Gopher!
 
