@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image"
 	_ "image/png"
+	"sync"
 	"unsafe"
 
 	"github.com/cwchiu/go-winapi"
@@ -84,6 +85,8 @@ func makeGopher() (*Gopher, error) {
 		"data/waiting.png",
 	}
 
+	var wg sync.WaitGroup
+
 	// make scene 1, 2, 3, and schene waiting
 	for i, fname := range files {
 		img[i], err = loadImage(fname)
@@ -96,18 +99,11 @@ func makeGopher() (*Gopher, error) {
 		}
 
 		// create region for window
-		hRgn[i] = winapi.CreateRectRgn(0, 0, 0, 0)
-		for y := img[i].Bounds().Min.Y; y != img[i].Bounds().Max.Y; y++ {
-			for x := img[i].Bounds().Min.X; x != img[i].Bounds().Max.X; x++ {
-				_, _, _, a := img[i].At(x, y).RGBA()
-				// combine transparent colors
-				if a > 0 {
-					mask := winapi.CreateRectRgn(int32(x), int32(y), int32(x+1), int32(y+1))
-					winapi.CombineRgn(hRgn[i], mask, hRgn[i], winapi.RGN_OR)
-					winapi.DeleteObject(winapi.HGDIOBJ(mask))
-				}
-			}
-		}
+		wg.Add(1)
+		go func(i int) {
+			hRgn[i] = toRgn(img[i])
+			wg.Done()
+		}(i)
 	}
 
 	// make reverse step 4, 5, 6, and waiting for right
@@ -118,18 +114,15 @@ func makeGopher() (*Gopher, error) {
 			return nil, err
 		}
 
-		hRgn[i] = winapi.CreateRectRgn(0, 0, 0, 0)
-		for y := img[i].Bounds().Min.Y; y != img[i].Bounds().Max.Y; y++ {
-			for x := img[i].Bounds().Min.X; x != img[i].Bounds().Max.X; x++ {
-				_, _, _, a := img[i].At(x, y).RGBA()
-				if a > 0 {
-					mask := winapi.CreateRectRgn(int32(x), int32(y), int32(x+1), int32(y+1))
-					winapi.CombineRgn(hRgn[i], mask, hRgn[i], winapi.RGN_OR)
-					winapi.DeleteObject(winapi.HGDIOBJ(mask))
-				}
-			}
-		}
+		// create region for window
+		wg.Add(1)
+		go func(i int) {
+			hRgn[i] = toRgn(img[i])
+			wg.Done()
+		}(i)
 	}
+
+	wg.Wait()
 
 	bounds := img[0].Bounds()
 	var rc winapi.RECT
@@ -172,4 +165,37 @@ func makeGopher() (*Gopher, error) {
 		wait: 0,
 		mode: mode,
 	}, nil
+}
+
+func toRgn(img image.Image) winapi.HRGN {
+	hRgn := winapi.CreateRectRgn(0, 0, 0, 0)
+	for y := img.Bounds().Min.Y; y != img.Bounds().Max.Y; y++ {
+		opaque := false
+		v := 0
+		for x := img.Bounds().Min.X; x != img.Bounds().Max.X; x++ {
+			_, _, _, a := img.At(x, y).RGBA()
+			// combine transparent colors
+			if a > 0 {
+				if !opaque {
+					opaque = true
+					v = x
+				}
+			} else {
+				if opaque {
+					addMask(hRgn, v, y, x, y+1)
+					opaque = false
+				}
+			}
+		}
+		if opaque {
+			addMask(hRgn, v, y, img.Bounds().Max.X, y+1)
+		}
+	}
+	return hRgn
+}
+
+func addMask(hRgn winapi.HRGN, left, top, right, bottom int) {
+	mask := winapi.CreateRectRgn(int32(left), int32(top), int32(right), int32(bottom))
+	winapi.CombineRgn(hRgn, mask, hRgn, winapi.RGN_OR)
+	winapi.DeleteObject(winapi.HGDIOBJ(mask))
 }
