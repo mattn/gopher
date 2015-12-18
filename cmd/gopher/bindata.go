@@ -86,7 +86,7 @@ func dataOut01Png() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "data/out01.png", size: 24764, mode: os.FileMode(438), modTime: time.Unix(1449160761, 0)}
+	info := bindataFileInfo{name: "data/out01.png", size: 24764, mode: os.FileMode(438), modTime: time.Unix(1450310058, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -106,7 +106,7 @@ func dataOut02Png() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "data/out02.png", size: 23084, mode: os.FileMode(438), modTime: time.Unix(1449160761, 0)}
+	info := bindataFileInfo{name: "data/out02.png", size: 23084, mode: os.FileMode(438), modTime: time.Unix(1450310058, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -126,7 +126,7 @@ func dataOut03Png() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "data/out03.png", size: 23988, mode: os.FileMode(438), modTime: time.Unix(1449160761, 0)}
+	info := bindataFileInfo{name: "data/out03.png", size: 23988, mode: os.FileMode(438), modTime: time.Unix(1450310058, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
@@ -146,7 +146,7 @@ func dataWaitingPng() (*asset, error) {
 		return nil, err
 	}
 
-	info := bindataFileInfo{name: "data/waiting.png", size: 19363, mode: os.FileMode(438), modTime: time.Unix(1449160761, 0)}
+	info := bindataFileInfo{name: "data/waiting.png", size: 19363, mode: os.FileMode(438), modTime: time.Unix(1450310058, 0)}
 	a := &asset{bytes: bytes, info: info}
 	return a, nil
 }
