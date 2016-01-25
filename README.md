@@ -91,9 +91,8 @@ And copy `gopher.exe` into the path which is contained in %PATH% environment var
 
 ## License
 
-MIT
-
-The image files of gopher is created by Renee French.
+This code is provided under the MIT license. See http://mattn.mit-license.org/ .
+The image files of gopher is provided under the [Creative Commons 3.0 Attribution license](https://creativecommons.org/licenses/by/3.0/).
 
 ## Author
 
