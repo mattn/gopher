@@ -1,6 +1,6 @@
 # Gopher
 
-![](http://i.imgur.com/9Xf0BTM.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/9Xf0BTM.gif)
 
 Love Gopher
 
@@ -12,7 +12,7 @@ At the first, you need to run `gopher.exe`.
 
 ### Walking
 
-![](http://i.imgur.com/9Xf0BTM.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/9Xf0BTM.gif)
 
 So Sweet!
 
@@ -20,7 +20,7 @@ So Sweet!
 
 If you did mis-type `ls` as `sl`.
 
-![](http://i.imgur.com/BgiIAj9.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/BgiIAj9.gif)
 
 So Fast!
 
@@ -32,11 +32,11 @@ This repository bundled `gopherc.exe` that is client application to operate Goph
 gopherc -m Hello
 ```
 
-![](http://i.imgur.com/DTIBM9W.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/DTIBM9W.gif)
 
 You need more gophers?
 
-![](http://i.imgur.com/xt550tv.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/xt550tv.gif)
 
 Hello Gopher!
 
@@ -46,7 +46,7 @@ Hello Gopher!
 gopherc -j
 ```
 
-![](http://i.imgur.com/OKqbF7n.gif)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/OKqbF7n.gif)
 
 Looking Good!
 
@@ -58,7 +58,7 @@ Use `misc/vim` if you are vimmer.
 :HeyGopher おなかすいた
 ```
 
-![](http://i.imgur.com/K9h25F5.png)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/K9h25F5.png)
 
 So don't worry even if you are remaining alone at your office and you feel lonely.
 
@@ -66,13 +66,13 @@ So don't worry even if you are remaining alone at your office and you feel lonel
 
 Run `gopherfeed.exe` to aggregate RSS feed.
 
-![](http://i.imgur.com/UEdmHYI.png)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/UEdmHYI.png)
 
 It's Nice!
 
 ### Websocket Chat
 
-![](http://i.imgur.com/PMVBSJ2.png)
+![](https://raw.githubusercontent.com/mattn/gopher/master/misc/screenshot/PMVBSJ2.png)
 
 It seems that the members of the chat room are talking on your windows desktop.
 
