@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/fatih/color"
-	rss "github.com/jteeuwen/go-pkg-rss"
+	rss "github.com/mattn/go-pkg-rss"
 	"github.com/mattn/go-runewidth"
 	"github.com/mattn/gopher"
 )
