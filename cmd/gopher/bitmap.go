@@ -5,7 +5,6 @@ import (
 	"errors"
 	"image"
 	_ "image/png"
-	"sync"
 	"unsafe"
 
 	"github.com/cwchiu/go-winapi"
@@ -14,7 +13,6 @@ import (
 
 type sceneInfo struct {
 	hBitmap winapi.HBITMAP
-	hRgn    winapi.HRGN
 	off     int // offset to play walking scene
 }
 
@@ -43,32 +41,109 @@ func hBitmapFromImage(img image.Image) (winapi.HBITMAP, error) {
 	}
 
 	ba := (*[1 << 30]byte)(unsafe.Pointer(bits))
-	i := 0
-	for y := img.Bounds().Min.Y; y != img.Bounds().Max.Y; y++ {
-		for x := img.Bounds().Min.X; x != img.Bounds().Max.X; x++ {
-			r, g, b, a := img.At(x, y).RGBA()
-			ba[i+3] = byte(a >> 8)
-			ba[i+2] = byte(r >> 8)
-			ba[i+1] = byte(g >> 8)
-			ba[i+0] = byte(b >> 8)
-			i += 4
+
+	// Fast path: direct pixel access for NRGBA (PNG decode result)
+	if nrgba, ok := img.(*image.NRGBA); ok {
+		pix := nrgba.Pix
+		stride := nrgba.Stride
+		bounds := img.Bounds()
+		i := 0
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			row := (y - bounds.Min.Y) * stride
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				j := row + (x-bounds.Min.X)*4
+				a := pix[j+3]
+				if a == 0xFF {
+					ba[i+0] = pix[j+2] // B
+					ba[i+1] = pix[j+1] // G
+					ba[i+2] = pix[j]   // R
+					ba[i+3] = 0xFF
+				} else if a > 0 {
+					// Premultiply alpha (BGRA order)
+					a16 := uint16(a)
+					ba[i+0] = byte(uint16(pix[j+2]) * a16 / 255)
+					ba[i+1] = byte(uint16(pix[j+1]) * a16 / 255)
+					ba[i+2] = byte(uint16(pix[j]) * a16 / 255)
+					ba[i+3] = a
+				} else {
+					ba[i+0] = 0
+					ba[i+1] = 0
+					ba[i+2] = 0
+					ba[i+3] = 0
+				}
+				i += 4
+			}
+		}
+	} else {
+		// Fallback: interface-based access
+		i := 0
+		for y := img.Bounds().Min.Y; y != img.Bounds().Max.Y; y++ {
+			for x := img.Bounds().Min.X; x != img.Bounds().Max.X; x++ {
+				r, g, b, a := img.At(x, y).RGBA()
+				ba[i+3] = byte(a >> 8)
+				ba[i+2] = byte(r >> 8)
+				ba[i+1] = byte(g >> 8)
+				ba[i+0] = byte(b >> 8)
+				i += 4
+			}
 		}
 	}
 	return hBitmap, nil
 }
 
+func createDIB32(w, h int32) (winapi.HBITMAP, unsafe.Pointer) {
+	var bi winapi.BITMAPINFOHEADER
+	bi.BiSize = uint32(unsafe.Sizeof(bi))
+	bi.BiWidth = w
+	bi.BiHeight = -h
+	bi.BiPlanes = 1
+	bi.BiBitCount = 32
+	bi.BiCompression = winapi.BI_RGB
+
+	hdc := winapi.GetDC(0)
+	defer winapi.ReleaseDC(0, hdc)
+
+	var bits unsafe.Pointer
+	hBitmap := winapi.CreateDIBSection(hdc, &bi, winapi.DIB_RGB_COLORS, &bits, 0, 0)
+	return hBitmap, bits
+}
+
 func loadImage(filename string) (image.Image, error) {
-	img, _, err := image.Decode(bytes.NewBuffer(MustAsset(filename)))
+	b, err := assets.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	img, _, err := image.Decode(bytes.NewReader(b))
 	return img, err
 }
 
 func reverseImage(img image.Image) image.Image {
-	// make reversed image
-	newimg := image.NewRGBA(img.Bounds())
-	Dx := img.Bounds().Dx()
-	for y := img.Bounds().Min.Y; y != img.Bounds().Max.Y; y++ {
-		for x := img.Bounds().Min.X; x != img.Bounds().Max.X; x++ {
-			newimg.Set(Dx-x, y, img.At(x, y))
+	bounds := img.Bounds()
+	dx := bounds.Dx()
+
+	// Fast path: direct pixel manipulation for NRGBA
+	if nrgba, ok := img.(*image.NRGBA); ok {
+		newimg := image.NewNRGBA(bounds)
+		for y := 0; y < bounds.Dy(); y++ {
+			srcRow := y * nrgba.Stride
+			dstRow := y * newimg.Stride
+			for x := 1; x < dx; x++ {
+				si := srcRow + x*4
+				di := dstRow + (dx-x)*4
+				newimg.Pix[di] = nrgba.Pix[si]
+				newimg.Pix[di+1] = nrgba.Pix[si+1]
+				newimg.Pix[di+2] = nrgba.Pix[si+2]
+				newimg.Pix[di+3] = nrgba.Pix[si+3]
+			}
+		}
+		return newimg
+	}
+
+	// Fallback
+	newimg := image.NewRGBA(bounds)
+	for y := bounds.Min.Y; y != bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x != bounds.Max.X; x++ {
+			newimg.Set(dx-x, y, img.At(x, y))
 		}
 	}
 	return newimg
@@ -85,9 +160,7 @@ func makeGopher() (*Gopher, error) {
 		"data/waiting.png",
 	}
 
-	var wg sync.WaitGroup
-
-	// make scene 1, 2, 3, and schene waiting
+	// make scene 1, 2, 3, and scene waiting
 	for i, fname := range files {
 		img[i], err = loadImage(fname)
 		if err != nil {
@@ -97,13 +170,6 @@ func makeGopher() (*Gopher, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		// create region for window
-		wg.Add(1)
-		go func(i int) {
-			hRgn[i] = toRgn(img[i])
-			wg.Done()
-		}(i)
 	}
 
 	// make reverse step 4, 5, 6, and waiting for right
@@ -113,16 +179,7 @@ func makeGopher() (*Gopher, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		// create region for window
-		wg.Add(1)
-		go func(i int) {
-			hRgn[i] = toRgn(img[i])
-			wg.Done()
-		}(i)
 	}
-
-	wg.Wait()
 
 	bounds := img[0].Bounds()
 	var rc winapi.RECT
@@ -131,18 +188,18 @@ func makeGopher() (*Gopher, error) {
 	screenWidth = int(rc.Right) - bounds.Dx()
 	scenes = [2][5]sceneInfo{
 		{
-			{hBitmap[0], hRgn[0], 0},
-			{hBitmap[1], hRgn[1], 2},
-			{hBitmap[2], hRgn[2], 4},
-			{hBitmap[1], hRgn[1], 2},
-			{hBitmap[3], hRgn[3], 0},
+			{hBitmap[0], 0},
+			{hBitmap[1], 2},
+			{hBitmap[2], 4},
+			{hBitmap[1], 2},
+			{hBitmap[3], 0},
 		},
 		{
-			{hBitmap[4], hRgn[4], 0},
-			{hBitmap[5], hRgn[5], 2},
-			{hBitmap[6], hRgn[6], 4},
-			{hBitmap[5], hRgn[5], 2},
-			{hBitmap[7], hRgn[7], 0},
+			{hBitmap[4], 0},
+			{hBitmap[5], 2},
+			{hBitmap[6], 4},
+			{hBitmap[5], 2},
+			{hBitmap[7], 0},
 		},
 	}
 
@@ -165,37 +222,4 @@ func makeGopher() (*Gopher, error) {
 		wait: 0,
 		mode: mode,
 	}, nil
-}
-
-func toRgn(img image.Image) winapi.HRGN {
-	hRgn := winapi.CreateRectRgn(0, 0, 0, 0)
-	for y := img.Bounds().Min.Y; y != img.Bounds().Max.Y; y++ {
-		opaque := false
-		v := 0
-		for x := img.Bounds().Min.X; x != img.Bounds().Max.X; x++ {
-			_, _, _, a := img.At(x, y).RGBA()
-			// combine transparent colors
-			if a > 0 {
-				if !opaque {
-					opaque = true
-					v = x
-				}
-			} else {
-				if opaque {
-					addMask(hRgn, v, y, x, y+1)
-					opaque = false
-				}
-			}
-		}
-		if opaque {
-			addMask(hRgn, v, y, img.Bounds().Max.X, y+1)
-		}
-	}
-	return hRgn
-}
-
-func addMask(hRgn winapi.HRGN, left, top, right, bottom int) {
-	mask := winapi.CreateRectRgn(int32(left), int32(top), int32(right), int32(bottom))
-	winapi.CombineRgn(hRgn, mask, hRgn, winapi.RGN_OR)
-	winapi.DeleteObject(winapi.HGDIOBJ(mask))
 }

@@ -42,8 +42,10 @@ const (
 	DT_NOFULLWIDTHCHARBREAK = 0x00080000
 	DT_HIDEPREFIX           = 0x00100000
 	DT_PREFIXONLY           = 0x00200000
-	LWA_COLORKEY            = 0x00001
-	LWA_ALPHA               = 0x00002
+
+	AC_SRC_OVER  = 0x00
+	AC_SRC_ALPHA = 0x01
+	ULW_ALPHA    = 0x00000002
 )
 
 type tagCOPYDATASTRUCT struct {
@@ -52,21 +54,26 @@ type tagCOPYDATASTRUCT struct {
 	LpData unsafe.Pointer
 }
 
+type BLENDFUNCTION struct {
+	BlendOp             byte
+	BlendFlags          byte
+	SourceConstantAlpha byte
+	AlphaFormat         byte
+}
+
 var (
-	user32                         = syscall.NewLazyDLL("user32.dll")
-	procSetWindowRgn               = user32.NewProc("SetWindowRgn")
-	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
-	procReplyMessage               = user32.NewProc("ReplyMessage")
-	procDrawText                   = user32.NewProc("DrawTextW")
-	shell32                        = syscall.NewLazyDLL("shell32.dll")
-	procShellExecute               = shell32.NewProc("ShellExecuteW")
+	user32                  = syscall.NewLazyDLL("user32.dll")
+	procUpdateLayeredWindow = user32.NewProc("UpdateLayeredWindow")
+	procReplyMessage        = user32.NewProc("ReplyMessage")
+	procDrawText            = user32.NewProc("DrawTextW")
+	shell32                 = syscall.NewLazyDLL("shell32.dll")
+	procShellExecute        = shell32.NewProc("ShellExecuteW")
 )
 
 var (
 	hBitmap [8]winapi.HBITMAP
-	hRgn    [8]winapi.HRGN
 	hFont   winapi.HFONT
-	white   = winapi.RGB(0xFF, 0xFF, 0xFF)
+	hMemDC  winapi.HDC // cached memory DC for non-Waiting hot path
 	black   = winapi.RGB(0x00, 0x00, 0x00)
 
 	gopher *Gopher
@@ -81,14 +88,88 @@ var (
 	slmode = flag.Bool("sl", false, "sl mode")
 )
 
-func updateWindowRegion(hWnd winapi.HWND) {
+func updateWindow(hWnd winapi.HWND) {
 	s := gopher.CurrentSceneInfo()
-	tmp := winapi.CreateRectRgn(0, 0, 0, 0)
-	winapi.CombineRgn(tmp, s.hRgn, 0, winapi.RGN_COPY)
-	winapi.SetWindowPos(hWnd, 0, int32(gopher.X()), int32(gopher.Y()-s.off), 0, 0,
-		winapi.SWP_NOSIZE|winapi.SWP_NOZORDER|winapi.SWP_NOOWNERZORDER)
-	procSetWindowRgn.Call(uintptr(hWnd), uintptr(tmp), uintptr(1))
-	winapi.InvalidateRect(hWnd, nil, false)
+
+	ptDst := winapi.POINT{X: int32(gopher.X()), Y: int32(gopher.Y() - s.off)}
+	sz := winapi.SIZE{CX: int32(gopher.W()), CY: int32(gopher.H())}
+	ptSrc := winapi.POINT{X: 0, Y: 0}
+
+	alpha := byte(255)
+	if gopher.Mode() == Stopping {
+		alpha = byte(gopher.Time() * 25)
+	}
+	bf := BLENDFUNCTION{AC_SRC_OVER, 0, alpha, AC_SRC_ALPHA}
+
+	var hdcSrc winapi.HDC
+	var hTmpBitmap winapi.HBITMAP
+	var hTmpDC winapi.HDC
+
+	if gopher.Mode() == Waiting {
+		// Infrequent path: create temp resources for text rendering
+		hdcScreen := winapi.GetDC(0)
+		hTmpDC = winapi.CreateCompatibleDC(hdcScreen)
+
+		var bits unsafe.Pointer
+		hTmpBitmap, bits = createDIB32(int32(gopher.W()), int32(gopher.H()))
+		winapi.SelectObject(hTmpDC, winapi.HGDIOBJ(hTmpBitmap))
+
+		hSrcDC := winapi.CreateCompatibleDC(hdcScreen)
+		winapi.SelectObject(hSrcDC, winapi.HGDIOBJ(s.hBitmap))
+		winapi.BitBlt(hTmpDC, 0, 0, int32(gopher.W()), int32(gopher.H()), hSrcDC, 0, 0, winapi.SRCCOPY)
+		winapi.DeleteDC(hSrcDC)
+		winapi.ReleaseDC(0, hdcScreen)
+
+		// Draw text on balloon
+		pt, _ := syscall.UTF16PtrFromString(gopher.Content())
+		winapi.SetTextColor(hTmpDC, black)
+		winapi.SetBkMode(hTmpDC, winapi.TRANSPARENT)
+		rc := winapi.RECT{13, 135, 190, 186}
+		old := winapi.SelectObject(hTmpDC, winapi.HGDIOBJ(hFont))
+		procDrawText.Call(
+			uintptr(hTmpDC),
+			uintptr(unsafe.Pointer(pt)), uintptr(len([]rune(gopher.Content()))),
+			uintptr(unsafe.Pointer(&rc)),
+			DT_LEFT|DT_VCENTER|DT_NOPREFIX|DT_EDITCONTROL|DT_WORDBREAK)
+		winapi.SelectObject(hTmpDC, old)
+
+		// Fix alpha in balloon area (GDI DrawText zeroes alpha)
+		if bits != nil {
+			stride := gopher.W() * 4
+			ba := (*[1 << 30]byte)(bits)
+			for y := 135; y < 186; y++ {
+				off := y * stride
+				for x := 13; x < 190; x++ {
+					ba[off+x*4+3] = 0xFF
+				}
+			}
+		}
+
+		hdcSrc = hTmpDC
+	} else {
+		// Hot path: reuse cached memory DC
+		winapi.SelectObject(hMemDC, winapi.HGDIOBJ(s.hBitmap))
+		hdcSrc = hMemDC
+	}
+
+	procUpdateLayeredWindow.Call(
+		uintptr(hWnd),
+		0, // hdcDst=NULL uses default screen DC
+		uintptr(unsafe.Pointer(&ptDst)),
+		uintptr(unsafe.Pointer(&sz)),
+		uintptr(hdcSrc),
+		uintptr(unsafe.Pointer(&ptSrc)),
+		0,
+		uintptr(unsafe.Pointer(&bf)),
+		ULW_ALPHA,
+	)
+
+	if hTmpBitmap != 0 {
+		winapi.DeleteObject(winapi.HGDIOBJ(hTmpBitmap))
+	}
+	if hTmpDC != 0 {
+		winapi.DeleteDC(hTmpDC)
+	}
 }
 
 func openBrowser(hWnd winapi.HWND, uri string) {
@@ -104,30 +185,6 @@ func openBrowser(hWnd winapi.HWND, uri string) {
 		uintptr(winapi.SW_SHOW))
 }
 
-func paintGopher(hWnd winapi.HWND) {
-	var ps winapi.PAINTSTRUCT
-	s := gopher.CurrentSceneInfo()
-	hdc := winapi.BeginPaint(hWnd, &ps)
-	hCompatDC := winapi.CreateCompatibleDC(hdc)
-	winapi.SelectObject(hCompatDC, winapi.HGDIOBJ(s.hBitmap))
-	winapi.BitBlt(hdc, 0, 0, int32(gopher.W()), int32(gopher.H()), hCompatDC, 0, 0, winapi.SRCCOPY)
-	if gopher.Mode() == Waiting {
-		pt, _ := syscall.UTF16PtrFromString(gopher.Content())
-		winapi.SetTextColor(hdc, black)
-		winapi.SetBkMode(hdc, winapi.TRANSPARENT)
-		rc := winapi.RECT{13, 135, 190, 186}
-		old := winapi.SelectObject(hdc, winapi.HGDIOBJ(hFont))
-		procDrawText.Call(
-			uintptr(hdc),
-			uintptr(unsafe.Pointer(pt)), uintptr(len([]rune(gopher.Content()))),
-			uintptr(unsafe.Pointer(&rc)),
-			DT_LEFT|DT_VCENTER|DT_NOPREFIX|DT_EDITCONTROL|DT_WORDBREAK)
-		winapi.SelectObject(hdc, old)
-	}
-	winapi.DeleteDC(hCompatDC)
-	winapi.EndPaint(hWnd, &ps)
-}
-
 func handleMethod(hWnd winapi.HWND, method string) {
 	switch method {
 	case "terminate":
@@ -138,11 +195,11 @@ func handleMethod(hWnd winapi.HWND, method string) {
 		gopher.SetMode(Waiting)
 		winapi.SetWindowPos(hWnd, 0, 0, 0, 0, 0,
 			winapi.SWP_NOMOVE|winapi.SWP_NOSIZE|winapi.SWP_NOOWNERZORDER)
-		updateWindowRegion(hWnd)
+		updateWindow(hWnd)
 	default:
 		gopher.SetMode(Waiting)
 		gopher.SetContent("What do you mean?")
-		updateWindowRegion(hWnd)
+		updateWindow(hWnd)
 	}
 }
 
@@ -161,7 +218,6 @@ func animateGopher(hWnd winapi.HWND) {
 			winapi.DestroyWindow(hWnd)
 		}
 		gopher.NextScene()
-		procSetLayeredWindowAttributes.Call(uintptr(hWnd), uintptr(white), uintptr(gopher.Time()*25), LWA_ALPHA)
 		gopher.Motion()
 	case Waiting:
 		if gopher.Idle() <= 0 {
@@ -196,9 +252,9 @@ func animateGopher(hWnd winapi.HWND) {
 		}
 	}
 
-	// redraw one
+	// redraw (skip Waiting - static, already drawn on entry)
 	if gopher.Mode() != Waiting {
-		updateWindowRegion(hWnd)
+		updateWindow(hWnd)
 	}
 }
 
@@ -312,6 +368,11 @@ func initializeInstance(hInstance winapi.HINSTANCE, nCmdShow int) error {
 		return err
 	}
 
+	// Cache a memory DC for the animation hot path
+	hdcScreen := winapi.GetDC(0)
+	hMemDC = winapi.CreateCompatibleDC(hdcScreen)
+	winapi.ReleaseDC(0, hdcScreen)
+
 	hFont = winapi.CreateFont(
 		15, 0, 0, 0, winapi.FW_NORMAL, 0, 0, 0,
 		winapi.ANSI_CHARSET, winapi.OUT_DEVICE_PRECIS,
@@ -336,20 +397,18 @@ func initializeInstance(hInstance winapi.HINSTANCE, nCmdShow int) error {
 		return errors.New("CreateWindowEx failed")
 	}
 
-	updateWindowRegion(hWnd)
-
-	procSetLayeredWindowAttributes.Call(uintptr(hWnd), uintptr(white), 255, LWA_ALPHA)
+	updateWindow(hWnd)
 	winapi.ShowWindow(hWnd, int32(nCmdShow))
 	winapi.SetTimer(hWnd, 1, 50, 0)
 	return nil
 }
 
 func finalizeInstance(hInstance winapi.HINSTANCE) error {
+	if hMemDC != 0 {
+		winapi.DeleteDC(hMemDC)
+	}
 	winapi.DeleteObject(winapi.HGDIOBJ(hFont))
 	for _, h := range hBitmap {
-		winapi.DeleteObject(winapi.HGDIOBJ(h))
-	}
-	for _, h := range hRgn {
 		winapi.DeleteObject(winapi.HGDIOBJ(h))
 	}
 	return nil
@@ -361,8 +420,6 @@ func wndProc(hWnd winapi.HWND, msg uint32, wParam uintptr, lParam uintptr) uintp
 		ipcGopher(hWnd, (*tagCOPYDATASTRUCT)(unsafe.Pointer(lParam)))
 	case winapi.WM_LBUTTONDOWN:
 		clickGopher(hWnd)
-	case winapi.WM_PAINT:
-		paintGopher(hWnd)
 	case winapi.WM_TIMER:
 		animateGopher(hWnd)
 	case winapi.WM_DESTROY:
